@@ -1,13 +1,14 @@
-name: st-ci
+name: dhubci
 
 on:
-  workflow_dispatch:
-    inputs
+  push:
+    branches:
+      - "main"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-        steps:
+    steps:
       -
         name: Checkout
         uses: actions/checkout@v4
@@ -27,4 +28,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tor-socat:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/clockbox:latest
