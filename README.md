@@ -6,7 +6,7 @@
 </h1>
 
 <div align="center">
-  Bootstrap scripts for easy server setup
+  tor-socat
   <br />
   <a href="#about"><strong>Explore the screenshots »</strong></a>
   <br />
@@ -45,7 +45,6 @@
 
 ## About
 
-> **[?]**
 > This is simple image of **TOR** and **socat** combined together to create local DNS proxy through TOR to CloudFlare's hidden DNS resolver\ 
 > https://dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion/
 
@@ -53,14 +52,20 @@
 
 
 > To use it as upstream server for other docker containers your command may look like:\
-> `docker run -d --name=socat-tor --restart=always sureserver/tor-socat`
+> `docker run -d --name=tor-socat --restart=always sureserver/tor-socat`
 > 
 > If you want to access it from your host, publish port 853 like this:\
-> `docker run -d --name=socat-tor -p 853:853 --restart=always sureserver/tor-socat`
+> `docker run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat`
 > 
 > This image uses obfs4 bridges to access tor network. There is a pair of them in this image. If you want to use another ones, just do it like this:\
-> `docker run -d --name=socat-tor -e bridge1="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" -e bridge2="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" --restart=always sureserver/tor-socat`
+> `docker run -d --name=tor-socat -e BRIDGE1="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" -e BRIDGE2="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" --restart=always sureserver/tor-socat`
 > with your desired bridges' strings in quotes
+>
+> To use it for DNS-over-HTTPS do it this way:\
+> `docker run -d --name=tor-socat --e PORT=443 --restart=always sureserver/tor-socat`
+> 
+> To use it for DNS do it this way:\
+> `docker run -d --name=tor-socat --e PORT=53 --restart=always sureserver/tor-socat`
 > 
 > After that just use IP-address of your container and port 853 as DNS-over-TLS upstream resolver
 
@@ -74,13 +79,13 @@ See the [open issues](https://github.com/sureserverman/tor-socat/issues) for a l
 
 ## Project assistance
 
-If you want to say **thank you** or/and support active development of Bootstrap scripts for easy server setup:
+If you want to say **thank you** or/and support active development of tor-socat:
 
 - Add a [GitHub Star](https://github.com/sureserverman/tor-socat) to the project.
-- Tweet about the Bootstrap scripts for easy server setup.
+- Tweet about the tor-socat.
 - Write interesting articles about the project on [Dev.to](https://dev.to/), [Medium](https://medium.com/) or your personal blog.
 
-Together, we can make Bootstrap scripts for easy server setup **better**!
+Together, we can make tor-socat **better**!
 
 ## Authors & contributors
 
@@ -90,10 +95,8 @@ For a full list of all authors and contributors, see [the contributors page](htt
 
 ## Security
 
-Bootstrap scripts for easy server setup follows good practices of security, but 100% security cannot be assured.
-Bootstrap scripts for easy server setup is provided **"as is"** without any **warranty**. Use at your own risk.
-
-_For more information and to report security issues, please refer to our [security documentation](docs/SECURITY.md)._
+tor-socat follows good practices of security, but 100% security cannot be assured.
+tor-socat is provided **"as is"** without any **warranty**. Use at your own risk.
 
 ## License
 
