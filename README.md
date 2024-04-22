@@ -32,10 +32,6 @@
 <summary>Table of Contents</summary>
 
 - [About](#about)
-  - [Built With](#built-with)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
 - [Project assistance](#project-assistance)
@@ -52,7 +48,10 @@
 > **[?]**
 > This is simple image of **TOR** and **socat** combined together to create local DNS proxy through TOR to CloudFlare's hidden DNS resolver\ 
 > https://dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion/
-> 
+
+## Usage
+
+
 > To use it as upstream server for other docker containers your command may look like:\
 > `docker run -d --name=socat-tor --restart=always sureserver/tor-socat`
 > 
@@ -64,34 +63,6 @@
 > with your desired bridges' strings in quotes
 > 
 > After that just use IP-address of your container and port 853 as DNS-over-TLS upstream resolver
-
-
-### Built With
-
-> **[?]**
-> Pure bash and bash only. No strings attached.
-
-## Getting Started
-
-### Prerequisites
-
-> **[?]**
-> This scripts set is intended for usage only with ubuntu 22.04 servers. It wasn't tested on any other operating system and I doubt it could work on them, because all the commands and repositories in this script were used and tested only on this operating system 
-
-### Installation
-
-> **[?]**
-> Describe how to install and get started with the project.
-
-## Usage
-
-> **[?]**
-> This script usage: init.sh -[cmsxfuhprabH]
-> Flags determine everything
-> Install: Matrix -m, Caddy -c, Xray -x, SSH honeypot -H
-> Set up: SSH -s, UFW -u, Fail2ban -f
-> SSH options: Custom port -p, Disable root login -r, Disable banners verbosity -b, Disable unsafe authentication methods -a
-> -h or no flags Print this help
 
 ## Roadmap
 
