@@ -126,6 +126,6 @@ _For more information and to report security issues, please refer to our [securi
 
 ## License
 
-This project is licensed under the **MIT license**.
+This project is licensed under the **GPLv3 license**.
 
 See [LICENSE](LICENSE) for more information.
