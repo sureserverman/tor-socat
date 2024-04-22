@@ -128,4 +128,4 @@ _For more information and to report security issues, please refer to our [securi
 
 This project is licensed under the **GPLv3 license**.
 
-See [LICENSE](LICENSE) for more information.
+See [LICENSE](LICENSE.md) for more information.
