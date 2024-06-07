@@ -4,6 +4,7 @@ RUN apk -U --no-cache upgrade
 RUN apk add --no-cache tor
 RUN apk --no-cache add socat
 RUN apk add --no-cache bind-tools
+RUN apk add --no-cache tini
 RUN apk add lyrebird --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/
 ADD torrc /etc/tor/
 ADD start.sh /bin/
@@ -12,4 +13,5 @@ ENV BRIDGE2='obfs4 198.98.53.149:443 886CA31F71272FC8B3808C601FA3ABB8A2905DB4 ce
 ENV PORT=853
 ENV BRIDGED="Y"
 HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 @127.0.0.1 google.com || kill 1
-CMD /bin/start.sh
+ENTRYPOINT ["tini", "--"]
+CMD ["/bin/start.sh"]
