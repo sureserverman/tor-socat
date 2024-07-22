@@ -1,3 +1,1 @@
-UseBridges 1
 ClientTransportPlugin obfs4 exec /usr/bin/lyrebird
-

@@ -1,6 +1,6 @@
 #!/bin/sh
 if [ $BRIDGED = "Y" ]; then
-    tor Bridge "$BRIDGE1" Bridge "$BRIDGE2" &
+    tor UseBridges 1 Bridge "$BRIDGE1" Bridge "$BRIDGE2" &
 else
     tor &
 fi
