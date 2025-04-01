@@ -5,7 +5,7 @@ RUN apk add --no-cache tor
 RUN apk --no-cache add socat
 RUN apk add --no-cache bind-tools
 RUN apk add --no-cache tini
-RUN apk add lyrebird --repository=http://dl-cdn.alpinelinux.org/alpine/edge/testing/
+RUN apk add --no-cache lyrebird 
 ADD torrc /etc/tor/
 ADD start.sh /bin/
 ENV BRIDGE1=''
