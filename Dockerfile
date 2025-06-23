@@ -12,6 +12,6 @@ ENV BRIDGE1=''
 ENV BRIDGE2=''
 ENV PORT=853
 ENV BRIDGED="N"
-HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 @127.0.0.1 google.com || kill 1
+HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 -p 853 @127.0.0.1 google.com || exit 1
 ENTRYPOINT ["tini", "--"]
 CMD ["/bin/start.sh"]
