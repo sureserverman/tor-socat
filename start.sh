@@ -1,9 +1,5 @@
 #!/bin/sh
-if [ $BRIDGED = "Y" ]; then
-    tor UseBridges 1 Bridge "$BRIDGE1" Bridge "$BRIDGE2" &
-else
-    tor &
-fi
+tor &
 
 TIMEOUT=5
 monitor_and_failover() {
