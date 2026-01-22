@@ -8,10 +8,7 @@ RUN apk add --no-cache tini
 RUN apk add lyrebird --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community/
 ADD torrc /etc/tor/
 ADD start.sh /bin/
-ENV BRIDGE1=''
-ENV BRIDGE2=''
 ENV PORT=853
-ENV BRIDGED="N"
 HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 -p 853 @127.0.0.1 google.com || exit 1
 ENTRYPOINT ["tini", "--"]
 CMD ["/bin/start.sh"]
