@@ -2,6 +2,7 @@ FROM alpine:latest
 
 RUN apk -U --no-cache upgrade
 RUN apk add --no-cache tor
+RUN apk add --no-cache curl
 RUN apk --no-cache add socat
 RUN apk add --no-cache bind-tools
 RUN apk add --no-cache tini
