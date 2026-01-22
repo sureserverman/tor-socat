@@ -1,5 +1,33 @@
 #!/bin/sh
-tor &
+
+BRIDGE_URL="https://bridges.torproject.org/bridges?transport=obfs4"
+BRIDGE_COUNT="${BRIDGE_COUNT:-2}"
+
+fetch_bridges() {
+  curl -fsSL "https://bridges.torproject.org/bridges?transport=obfs4" \
+    | sed -E 's/<br[[:space:]]*\/?>/\n/gI' \
+    | sed -E 's/<[^>]+>//g' \
+    | sed -E 's/&#43;/+/g; s/&amp;/\&/g; s/&#x2[Bb];/+/g' \
+    | awk '
+        /^[[:space:]]*obfs4 / {
+          gsub(/^[[:space:]]+/, "");
+          gsub(/[[:space:]]+$/, "");
+          print
+        }
+      ' \
+    | head -n "${BRIDGE_COUNT:-2}"
+}
+
+BRIDGES="$(fetch_bridges || true)"
+
+if [ -z "${BRIDGES}" ]; then
+  echo "ERROR: could not fetch obfs4 bridges from $BRIDGE_URL"
+  exit 1
+fi
+BRIDGE1="$(echo "${BRIDGES}" | sed -n '1p')"
+BRIDGE2="$(echo "${BRIDGES}" | sed -n '2p')"
+
+tor Bridge "$BRIDGE1" Bridge "$BRIDGE2" &
 
 TIMEOUT=5
 monitor_and_failover() {
