@@ -8,6 +8,7 @@ RUN apk add --no-cache bind-tools
 RUN apk add --no-cache tini
 RUN apk add lyrebird --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community/
 ADD torrc /etc/tor/
+ADD resolv.conf /etc/
 ADD start.sh /bin/
 ENV PORT=853
 HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 -p 853 @127.0.0.1 google.com || exit 1
