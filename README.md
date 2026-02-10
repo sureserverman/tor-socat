@@ -72,6 +72,21 @@
 > To disable obfs4-bridges:\
 > `docker run -d --name=tor-socat --e BRIDGED="N" --restart=always sureserver/tor-socat:latest`
 
+### Podman
+
+> All the same commands work with Podman by replacing `docker` with `podman`:\
+> `podman run -d --name=tor-socat --restart=always sureserver/tor-socat:latest`
+>
+> With host port published:\
+> `podman run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat:latest`
+>
+> With custom bridges:\
+> `podman run -d --name=tor-socat -e BRIDGE1="obfs4 IP:PORT FINGERPRINT cert=... iat-mode=0" -e BRIDGE2="obfs4 IP:PORT FINGERPRINT cert=... iat-mode=0" --restart=always sureserver/tor-socat:latest`
+>
+> To generate a systemd service for auto-start:\
+> `podman generate systemd --name tor-socat --new > ~/.config/systemd/user/tor-socat.service`\
+> `systemctl --user enable --now tor-socat.service`
+
 
 ## Roadmap
 
@@ -104,6 +119,6 @@ tor-socat is provided **"as is"** without any **warranty**. Use at your own risk
 
 ## License
 
-This project is licensed under the **GPLv3 license**.
+This project is licensed under the **MIT license**.
 
 See [LICENSE](LICENSE.md) for more information.
