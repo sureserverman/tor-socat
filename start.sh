@@ -5,7 +5,7 @@ BRIDGE2="${BRIDGE2:-obfs4 107.4.186.44:8214 1B6CB332A1954FDF740DE75E8AFAEB41469D
 
 TOR_LOG=/var/log/tor.log
 
-tor Bridge "$BRIDGE1" Bridge "$BRIDGE2" | tee "$TOR_LOG" &
+tor Bridge "$BRIDGE1" Bridge "$BRIDGE2" 2>&1 | tee "$TOR_LOG" &
 
 # Wait for Tor to bootstrap (up to 5 minutes)
 echo "Waiting for Tor to bootstrap..."
