@@ -42,7 +42,6 @@ podman run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat:
 | `PORT` | `853` | Listening port (853 for DoT, 443 for DoH, 53 for DNS) |
 | `BRIDGE1` | *(built-in)* | First obfs4 bridge string |
 | `BRIDGE2` | *(built-in)* | Second obfs4 bridge string |
-| `BRIDGED` | *(enabled)* | Set to `N` to disable obfs4 bridges |
 
 ## Custom bridges
 
@@ -71,7 +70,7 @@ Client --[DNS-over-TLS]--> socat --[SOCKS4A]--> Tor ---> upstream DoT resolver
 
 - **socat** does raw TCP relay with transparent TLS passthrough (end-to-end encryption)
 - **SOCKS4A** routes connections through Tor with remote hostname resolution (.onion support)
-- Shell-based **monitor_and_failover** detects connection errors and switches to backup upstreams
+- Active **health checks** every 30s with automatic failover across three upstream tiers
 - Uses **obfs4 bridges** via lyrebird to circumvent Tor censorship
 
 ## Supported platforms
@@ -84,4 +83,4 @@ Client --[DNS-over-TLS]--> socat --[SOCKS4A]--> Tor ---> upstream DoT resolver
 
 ## License
 
-GPLv3
+MIT

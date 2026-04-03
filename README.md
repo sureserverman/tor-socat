@@ -8,9 +8,6 @@
 <div align="center">
   tor-socat
   <br />
-  <a href="#about"><strong>Explore the screenshots »</strong></a>
-  <br />
-  <br />
   <a href="https://github.com/sureserverman/tor-socat/issues/new?assignees=&labels=bug&template=01_BUG_REPORT.md&title=bug%3A+">Report a Bug</a>
   ·
   <a href="https://github.com/sureserverman/tor-socat/issues/new?assignees=&labels=enhancement&template=02_FEATURE_REQUEST.md&title=feat%3A+">Request a Feature</a>
@@ -64,13 +61,10 @@
 > After that just use IP-address of your container and port 853 as DNS-over-TLS upstream resolver
 >
 > To use it for DNS-over-HTTPS do it this way:\
-> `docker run -d --name=tor-socat --e PORT=443 --restart=always sureserver/tor-socat:latest`
+> `docker run -d --name=tor-socat -e PORT=443 --restart=always sureserver/tor-socat:latest`
 > 
 > To use it for DNS do it this way:\
-> `docker run -d --name=tor-socat --e PORT=53 --restart=always sureserver/tor-socat:latest`
->
-> To disable obfs4-bridges:\
-> `docker run -d --name=tor-socat --e BRIDGED="N" --restart=always sureserver/tor-socat:latest`
+> `docker run -d --name=tor-socat -e PORT=53 --restart=always sureserver/tor-socat:latest`
 
 ### Podman
 
