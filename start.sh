@@ -27,7 +27,6 @@ FALLBACK="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:9.9.
 
 CHECK_INTERVAL=30
 FAIL_THRESHOLD=3
-PROMOTE_INTERVAL=300
 
 run_tier() {
     local label="$1"
@@ -41,19 +40,15 @@ run_tier() {
     $cmd &
     SOCAT_PID=$!
     fail_count=0
-    seconds_on_tier=0
 
     while true; do
         sleep "$CHECK_INTERVAL"
-        seconds_on_tier=$((seconds_on_tier + CHECK_INTERVAL))
 
         # Check if socat process is alive
         if ! kill -0 "$SOCAT_PID" 2>/dev/null; then
             echo "$label socat process died."
             if [ -n "$next_cmd" ]; then
                 run_tier "$next_label" "$next_cmd" "$fallback_label" "$fallback_cmd" "" ""
-            elif [ -n "$fallback_cmd" ]; then
-                exec $fallback_cmd
             fi
             return
         fi
@@ -68,8 +63,6 @@ run_tier() {
                 wait "$SOCAT_PID" 2>/dev/null
                 if [ -n "$next_cmd" ]; then
                     run_tier "$next_label" "$next_cmd" "$fallback_label" "$fallback_cmd" "" ""
-                elif [ -n "$fallback_cmd" ]; then
-                    exec $fallback_cmd
                 fi
                 return
             fi
@@ -79,4 +72,9 @@ run_tier() {
     done
 }
 
-run_tier "PRIMARY" "$PRIMARY" "BACKUP" "$BACKUP" "FALLBACK" "$FALLBACK"
+# Retry from PRIMARY if all tiers are exhausted (Tor circuits may be temporarily unstable)
+while true; do
+    run_tier "PRIMARY" "$PRIMARY" "BACKUP" "$BACKUP" "FALLBACK" "$FALLBACK"
+    echo "All tiers exhausted, retrying from PRIMARY in 30s..."
+    sleep 30
+done
