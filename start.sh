@@ -1,7 +1,7 @@
 #!/bin/sh
 
-BRIDGE1="${BRIDGE1:-obfs4 REDACTED-IP-2:8088 REDACTED-FPR-2 cert=REDACTED-CERT-2 iat-mode=0}"
-BRIDGE2="${BRIDGE2:-obfs4 107.4.186.44:8214 1B6CB332A1954FDF740DE75E8AFAEB41469D5821 cert=voxt3pqV5YWgLcqoHt+HDBieiUVzgxx3MOVHHa3RUPqlmsMGzSMu0Mv3AcY3XkQK9UirFw iat-mode=0}"
+BRIDGE1="${BRIDGE1:-obfs4 REDACTED-IP-1:29323 REDACTED-FPR-1 cert=REDACTED-CERT-1 iat-mode=0}"
+BRIDGE2="${BRIDGE2:-obfs4 REDACTED-IP-2:8088 REDACTED-FPR-2 cert=REDACTED-CERT-2 iat-mode=0}"
 
 TOR_LOG=/var/log/tor.log
 
@@ -21,9 +21,9 @@ for i in $(seq 1 60); do
 done
 
 # Socat commands for each failover tier
-PRIMARY="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion:${PORT},socksport=9050,connect-timeout=2"
-BACKUP="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:1.1.1.1:${PORT},socksport=9050,connect-timeout=2"
-FALLBACK="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:9.9.9.9:${PORT},socksport=9050,connect-timeout=2"
+PRIMARY="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion:${PORT},socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
+BACKUP="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:1.1.1.1:${PORT},socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
+FALLBACK="socat -d -T3 TCP4-LISTEN:${PORT},reuseaddr,fork SOCKS4A:127.0.0.1:9.9.9.9:${PORT},socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
 
 CHECK_INTERVAL=30
 FAIL_THRESHOLD=3

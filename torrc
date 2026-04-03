@@ -1,5 +1,6 @@
 DataDirectory /var/lib/tor
 User tor
+SocksTimeout 15
 UseBridges 1
 
 ClientTransportPlugin obfs4 exec /usr/bin/lyrebird
