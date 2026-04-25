@@ -13,12 +13,18 @@ ENV APP_DIR="/$APP_USER"
 ENV DATA_DIR="$APP_DIR/data"
 ENV CONF_DIR="$APP_DIR/conf"
 
+# Edge-community release pin: bump alongside the alpine major version above.
+# lyrebird is only available from edge/community; pinning the version makes
+# rebuilds reproducible regardless of edge package churn.
+ARG LYREBIRD_VERSION=0.8.1-r4
+
 RUN apk add --no-cache ca-certificates
 
-# App user and directories
+# App user and directories. tor's DataDirectory lives under $DATA_DIR so the
+# unprivileged app user owns it.
 RUN adduser -s /bin/true -u 1000 -D -h $APP_DIR $APP_USER \
-    && mkdir "$DATA_DIR" "$CONF_DIR" \
-    && chown -R "$APP_USER" "$APP_DIR" "$CONF_DIR" \
+    && mkdir "$DATA_DIR" "$CONF_DIR" "$DATA_DIR/tor" \
+    && chown -R "$APP_USER" "$APP_DIR" "$CONF_DIR" "$DATA_DIR" \
     && chmod 700 "$APP_DIR" "$DATA_DIR" "$CONF_DIR"
 
 # Hardening (mirrors ironpeakservices/iron-alpine)
@@ -49,10 +55,14 @@ RUN chmod 500 $APP_DIR/post-install.sh
 WORKDIR $APP_DIR
 
 # --- Application layer ---
+# socat needs CAP_NET_BIND_SERVICE to bind PORT=853; libcap is installed
+# temporarily for setcap and removed before post-install runs.
 RUN apk -U --no-cache upgrade \
-    && apk add --no-cache tor socat bind-tools tini \
-    && apk add --no-cache lyrebird \
-        --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community/
+    && apk add --no-cache tor socat bind-tools tini libcap \
+    && apk add --no-cache "lyrebird=${LYREBIRD_VERSION}" \
+        --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community/ \
+    && setcap 'cap_net_bind_service=+ep' /usr/bin/socat \
+    && apk del libcap
 
 COPY torrc /etc/tor/
 COPY start.sh /bin/
@@ -62,6 +72,8 @@ HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 -p 853 @127.0.0.1 google.com
 
 # Remove apk and lock down app directory
 RUN $APP_DIR/post-install.sh
+
+USER app
 
 ENTRYPOINT ["tini", "--"]
 CMD ["/bin/start.sh"]
