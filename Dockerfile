@@ -63,7 +63,8 @@ RUN apk -U --no-cache upgrade \
     && apk add --no-cache --virtual .setcap-deps libcap \
     && apk add --no-cache "lyrebird=${LYREBIRD_VERSION}" \
         --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community/ \
-    && setcap 'cap_net_bind_service=+ep' /usr/bin/socat \
+    && setcap 'cap_net_bind_service=+ep' "$(readlink -f /usr/bin/socat)" \
+    && getcap "$(readlink -f /usr/bin/socat)" | grep -q cap_net_bind_service \
     && apk del .setcap-deps
 
 COPY --chown=root:root torrc /etc/tor/
