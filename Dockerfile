@@ -54,14 +54,17 @@ COPY --chown=app:app --chmod=500 post-install.sh $APP_DIR/
 WORKDIR $APP_DIR
 
 # --- Application layer ---
-# socat needs CAP_NET_BIND_SERVICE to bind PORT=853; libcap is installed
-# temporarily for setcap and removed before post-install runs.
+# socat needs CAP_NET_BIND_SERVICE to bind PORT=853. libcap is installed as a
+# named virtual package — `apk del .setcap-deps` then removes it ONLY if no
+# other installed package (e.g. tor) depends on libcap; otherwise it stays.
+# Plain `apk del libcap` would fail with reverse-dep rejection.
 RUN apk -U --no-cache upgrade \
-    && apk add --no-cache tor socat bind-tools tini libcap \
+    && apk add --no-cache tor socat bind-tools tini \
+    && apk add --no-cache --virtual .setcap-deps libcap \
     && apk add --no-cache "lyrebird=${LYREBIRD_VERSION}" \
         --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community/ \
     && setcap 'cap_net_bind_service=+ep' /usr/bin/socat \
-    && apk del libcap
+    && apk del .setcap-deps
 
 COPY --chown=root:root torrc /etc/tor/
 COPY --chown=root:root --chmod=755 start.sh /bin/
