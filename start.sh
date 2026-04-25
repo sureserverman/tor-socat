@@ -3,6 +3,10 @@
 # shellcheck disable=SC3043  # 'local' is supported by busybox ash
 set -eu
 
+# Files we create (tor.log etc.) are owner-only — tor circuit info and
+# bridge parameters are visible in tor's startup logs.
+umask 077
+
 # Bridges MUST be supplied by the operator at runtime — no defaults are
 # baked into the image. The previous defaults leaked real obfs4 fingerprints
 # and certificates into every published image layer.
