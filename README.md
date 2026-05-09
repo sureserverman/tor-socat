@@ -59,12 +59,6 @@
 > with your desired bridges' strings in quotes
 > 
 > After that just use IP-address of your container and port 853 as DNS-over-TLS upstream resolver
->
-> To use it for DNS-over-HTTPS do it this way:\
-> `docker run -d --name=tor-socat -e PORT=443 --restart=always sureserver/tor-socat:latest`
-> 
-> To use it for DNS do it this way:\
-> `docker run -d --name=tor-socat -e PORT=53 --restart=always sureserver/tor-socat:latest`
 
 ### Podman
 

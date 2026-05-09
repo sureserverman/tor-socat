@@ -25,13 +25,6 @@ echo "$BRIDGE1" | grep -Eq "$bridge_re" || { echo "ERROR: BRIDGE1 has invalid ob
 echo "$BRIDGE2" | grep -Eq "$bridge_re" || { echo "ERROR: BRIDGE2 has invalid obfs4 syntax" >&2; exit 1; }
 echo "$BRIDGE3" | grep -Eq "$bridge_re" || { echo "ERROR: BRIDGE3 has invalid obfs4 syntax" >&2; exit 1; }
 
-case "${PORT:-}" in
-    ''|*[!0-9]*) echo "ERROR: PORT must be numeric (got '${PORT:-}')" >&2; exit 1 ;;
-esac
-if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-    echo "ERROR: PORT $PORT out of range 1-65535" >&2; exit 1
-fi
-
 # Cap concurrent socat children to bound memory/FD use; tune via env if needed.
 SOCAT_MAX_CHILDREN="${SOCAT_MAX_CHILDREN:-256}"
 case "$SOCAT_MAX_CHILDREN" in
@@ -72,9 +65,9 @@ done
 
 # Socat commands for each failover tier. max-children caps fanout.
 LISTEN_OPTS="reuseaddr,fork,max-children=${SOCAT_MAX_CHILDREN}"
-PRIMARY="socat -d -T3 TCP4-LISTEN:${PORT},${LISTEN_OPTS} SOCKS4A:127.0.0.1:dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion:${PORT},socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
-BACKUP="socat -d -T3 TCP4-LISTEN:${PORT},${LISTEN_OPTS} SOCKS4A:127.0.0.1:1.1.1.1:${PORT},socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
-FALLBACK="socat -d -T3 TCP4-LISTEN:${PORT},${LISTEN_OPTS} SOCKS4A:127.0.0.1:9.9.9.9:${PORT},socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
+PRIMARY="socat -d -T3 TCP4-LISTEN:853,${LISTEN_OPTS} SOCKS4A:127.0.0.1:dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion:853,socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
+BACKUP="socat -d -T3 TCP4-LISTEN:853,${LISTEN_OPTS} SOCKS4A:127.0.0.1:1.1.1.1:853,socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
+FALLBACK="socat -d -T3 TCP4-LISTEN:853,${LISTEN_OPTS} SOCKS4A:127.0.0.1:9.9.9.9:853,socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
 
 CHECK_INTERVAL=30
 FAIL_THRESHOLD=3
@@ -103,7 +96,7 @@ run_tier() {
             return
         fi
 
-        if ! dig +short +tls +norecurse +retry=0 +time=5 -p "${PORT}" @127.0.0.1 google.com >/dev/null 2>&1; then
+        if ! dig +short +tls +norecurse +retry=0 +time=5 -p 853 @127.0.0.1 google.com >/dev/null 2>&1; then
             fail_count=$((fail_count + 1))
             echo "$label health check failed ($fail_count/$FAIL_THRESHOLD)"
             if [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then

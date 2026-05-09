@@ -52,15 +52,6 @@ docker run -d --name=tor-socat \
   --restart=always sureserver/tor-socat:latest
 ```
 
-## Different protocols
-
-```bash
-# DNS-over-HTTPS
-docker run -d --name=tor-socat -e PORT=443 --restart=always sureserver/tor-socat:latest
-
-# Plain DNS
-docker run -d --name=tor-socat -e PORT=53 --restart=always sureserver/tor-socat:latest
-```
 
 ## Architecture
 

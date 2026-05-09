@@ -54,7 +54,7 @@ COPY --chown=app:app --chmod=500 post-install.sh $APP_DIR/
 WORKDIR $APP_DIR
 
 # --- Application layer ---
-# socat needs CAP_NET_BIND_SERVICE to bind PORT=853. libcap is installed as a
+# socat needs CAP_NET_BIND_SERVICE to bind port 853. libcap is installed as a
 # named virtual package — `apk del .setcap-deps` then removes it ONLY if no
 # other installed package (e.g. tor) depends on libcap; otherwise it stays.
 # Plain `apk del libcap` would fail with reverse-dep rejection.
@@ -70,7 +70,6 @@ RUN apk -U --no-cache upgrade \
 COPY --chown=root:root torrc /etc/tor/
 COPY --chown=root:root --chmod=755 start.sh /bin/
 
-ENV PORT=853
 HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 -p 853 @127.0.0.1 google.com || exit 1
 
 # Remove apk and lock down app directory
