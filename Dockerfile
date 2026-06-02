@@ -29,7 +29,7 @@ ENV CONF_DIR="$APP_DIR/conf"
 # Edge-community release pin: bump alongside the alpine major version above.
 # lyrebird is only available from edge/community; pinning the version makes
 # rebuilds reproducible regardless of edge package churn.
-ARG LYREBIRD_VERSION=0.8.1-r4
+ARG LYREBIRD_VERSION=0.8.1-r5
 
 RUN apk add --no-cache ca-certificates
 
