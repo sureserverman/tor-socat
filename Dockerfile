@@ -1,3 +1,16 @@
+# --- bridge-eval builder ---------------------------------------------------
+# Cross-compiles the obfs4 bridge evaluator for the target arch. Pure-Go,
+# CGO-free, no module deps, so it builds for amd64 / armv7 / arm64 / riscv64
+# from any BUILDPLATFORM. GOTOOLCHAIN=local + GOPROXY=off keep it hermetic.
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS bridge-eval-build
+ARG TARGETARCH
+ARG TARGETVARIANT
+ENV CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=local GOPROXY=off
+WORKDIR /src
+COPY bridge-eval/go.mod bridge-eval/main.go ./
+RUN GOARCH="$TARGETARCH" GOARM="${TARGETVARIANT#v}" \
+    go build -trimpath -ldflags='-s -w' -o /out/bridge-eval .
+
 FROM alpine:3.23.4
 
 LABEL org.opencontainers.image.source="https://github.com/sureserverman/tor-socat"
@@ -69,6 +82,7 @@ RUN apk -U --no-cache upgrade \
 
 COPY --chown=root:root torrc /etc/tor/
 COPY --chown=root:root --chmod=755 start.sh /bin/
+COPY --from=bridge-eval-build --chown=root:root --chmod=755 /out/bridge-eval /bin/bridge-eval
 
 HEALTHCHECK CMD dig +short +tls +norecurse +retry=0 -p 853 @127.0.0.1 google.com || exit 1
 
