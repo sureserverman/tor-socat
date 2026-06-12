@@ -11,7 +11,7 @@ COPY bridge-eval/go.mod bridge-eval/*.go ./
 RUN GOARCH="$TARGETARCH" GOARM="${TARGETVARIANT#v}" \
     go build -trimpath -ldflags='-s -w' -o /out/bridge-eval .
 
-FROM alpine:3.23.4
+FROM alpine:3.24.0
 
 LABEL org.opencontainers.image.source="https://github.com/sureserverman/tor-socat"
 
