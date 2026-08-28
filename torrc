@@ -14,3 +14,45 @@ SocksPort 127.0.0.1:9050
 # No ControlPort — no authenticated management channel exposed.
 
 ClientTransportPlugin obfs4 exec /usr/bin/lyrebird
+
+# Connection-warmth tuning for the long-lived socat → .onion DoT path.
+# Ported from tor-haproxy so both variants behave the same; start.sh reaches
+# the resolver at SOCKS4A ...onion:853, so the virtual port is 853 here too.
+#
+# MaxCircuitDirtiness 3600 — recycle each circuit's streams every hour
+#   instead of Tor's 10-minute default. For hidden services this is measured
+#   from the circuit's *last* use, so a DNS-only workload retires the
+#   rendezvous circuit after 10 idle minutes and the next query pays a full
+#   rebuild. Benchmarked on nice-dns (same 20 domains, fresh unbound cache
+#   per variant, forward and reversed ordering to control for drift), the
+#   configurations carrying this setting were the only ones that stayed fast
+#   in both orderings: median 998/1013ms against 1730/3675ms for the
+#   default, whose p90 reached 9750ms and max 30s.
+#
+#   The anonymity cost is explicit: streams to the same .onion from one
+#   client over one circuit are correlatable, and this widens that window
+#   from 10 minutes to an hour. Chosen deliberately in favour of warmth.
+MaxCircuitDirtiness 3600
+
+# ConfluxClientUX latency — Conflux (see the note above) pairs two
+#   link-disjoint rendezvous circuits but defaults to "throughput", which
+#   optimises bulk transfer. DNS is the opposite workload; "latency" selects
+#   the MinRTT scheduler, which per proposal 329 "works by always and only
+#   sending on the circuit with the current minimum RTT".
+#
+#   Honest status: did NOT survive benchmarking — it appeared to win by ~45%
+#   when run early in a sequence and lost that entirely when run late in the
+#   reversed run, i.e. it tracked network drift. Kept because the mechanism
+#   suits this workload and costs nothing, not because it was measured.
+ConfluxClientUX latency
+
+# LongLivedPorts 853 — "circuits for streams that use these ports will
+#   contain only high-uptime nodes", and the list "is also honored for
+#   circuits (both client and service side) involving hidden services whose
+#   virtual port is in this list". 853 is absent from the default list.
+#   Biases the rendezvous circuit toward relays less likely to vanish
+#   mid-session.
+#
+#   Honest status: inconclusive — it targets stall frequency rather than
+#   per-query latency, which the benchmark could not resolve.
+LongLivedPorts 853
