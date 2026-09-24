@@ -104,7 +104,9 @@
 >
 > The image labels declare the interface: `org.nice-dns.transport.interface` (`nice-dns-transport/2`), `org.nice-dns.transport.routes` (route=port pairs), `org.nice-dns.transport.probe` and `org.nice-dns.transport.restart` (`control-dir-ack`, the restart contract above).
 >
-> The legacy listener's failover to its backup tier decides with the same probe: three failed probes in a row (`LEGACY_FAIL_THRESHOLD`, every `LEGACY_CHECK_INTERVAL` seconds) switch 853 from the .onion to 1.1.1.1.
+> The legacy listener's failover to its backup tier decides with the same probe, always with the one name clients authenticate on 853 (`tor.cloudflare-dns.com` by default), whichever tier is active. A tier whose certificate does not carry that name is unusable for those clients too, so the check fails there and the listener moves on rather than keeping a tier its clients reject.
+>
+> Three failed probes in a row (`LEGACY_FAIL_THRESHOLD`, every `LEGACY_CHECK_INTERVAL` seconds) switch 853 from the .onion to 1.1.1.1.
 >
 > Migration from the earlier image: the health check used to accept any certificate and any answer to `google.com`, so it could report a wrong provider or an unauthenticated session as healthy. Clients of port 853 need no change. A client that ran its own `dig +tls` checks should verify the name the same way.
 
