@@ -76,6 +76,24 @@
 > `systemctl --user enable --now tor-socat.service`
 
 
+## Routes
+
+> Port 853 is the legacy listener: the Cloudflare .onion first, Cloudflare's 1.1.1.1 via a Tor exit as backup. It is Cloudflare only. The earlier Quad9 (9.9.9.9) fallback was removed, because a client that authenticates a Cloudflare name must never have its stream handed to another provider.
+>
+> Three identity-bound routes reach exactly one provider each, with no backup or fallback to another provider:
+>
+> | Port | Route | Destination (through Tor, SOCKS4A) |
+> |---|---|---|
+> | 18531 | cloudflare-onion | Cloudflare's resolver .onion |
+> | 18532 | cloudflare-exit | 1.1.1.1:853 via a Tor exit |
+> | 18533 | quad9-exit | 9.9.9.9:853 via a Tor exit |
+>
+> The TLS session is end to end between your client and the provider. Your client must verify the provider's name for the route it uses. The client, not this image, chooses between routes. Each route listener accepts at most `ROUTE_MAX_CHILDREN` connections (default 128); 853 accepts `SOCAT_MAX_CHILDREN` (default 256).
+
+## Restarting Tor without restarting the container
+
+> Write a request id (1–64 characters from `A-Za-z0-9._:-`) to `/tmp/tor-restart-request` inside the container. Write a temp file and `mv` it, so the write is atomic. Within about 5 seconds only Tor is restarted; the socat listeners keep running. The answer appears in `/tmp/tor-restart-ack` as tab-separated lines: `request_id`, `status` (`respawned`, `refused` or `rejected`), `generation`, `tor_pid` and `utc`. `/tmp/tor-generation` always names the current generation and Tor pid. An acknowledgement means Tor was respawned, not that it has bootstrapped. Check readiness separately. Touching `/tmp/tor-restart-flag` is acknowledged as request id `legacy`. If `/tmp/bridges-current.env` exists at the restart, its bridges are used. This is the same contract as tor-haproxy.
+
 ## Roadmap
 
 See the [open issues](https://github.com/sureserverman/tor-socat/issues) for a list of proposed features (and known issues).
