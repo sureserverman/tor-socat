@@ -318,11 +318,12 @@ run_tier() {
             return
         fi
 
-        # An answer line is required: dig +tls exits 0 when the connection is
-        # accepted and then dropped, so its exit status never failed and the
-        # failover below never fired; dig +short also prints ";;" error lines
-        # on stdout, so any output is not an answer either.
-        if ! dig +short +tls +norecurse +retry=0 +time=5 -p 853 @127.0.0.1 google.com 2>/dev/null | grep -q '^[^;]'; then
+        # An authenticated DNS response is required (nice-dns-route-probe:
+        # certificate chain and the consumer's TLS name verified, response
+        # code read): a wrong-name, untrusted or expired certificate, a
+        # dropped connection or SERVFAIL is a failure. dig's own exit status
+        # is 0 for a dropped connection, so it is not used.
+        if ! NICE_DNS_PROBE_TIMEOUT=5 nice-dns-route-probe 853 "${NICE_DNS_HEALTH_TLS_NAME:-tor.cloudflare-dns.com}" >/dev/null 2>&1; then
             fail_count=$((fail_count + 1))
             echo "$label health check failed ($fail_count/$FAIL_THRESHOLD)"
             if [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
