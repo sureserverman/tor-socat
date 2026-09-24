@@ -137,20 +137,35 @@ RESTART_FLAG=/tmp/tor-restart-flag
 BRIDGES_REFRESH=/tmp/bridges-current.env
 # Acknowledged restart contract (nice-dns ARCH-03 request_recovery), the same
 # as tor-haproxy's:
-#   host writes a request id to RESTART_REQUEST (atomically: tmp + mv);
+#   host writes a request id to RESTART_REQUEST (atomically: tmp + mv in
+#   the same directory);
 #   the image restarts only tor and answers in RESTART_ACK, TSV lines
-#     request_id <id>  status respawned|refused|rejected  generation <n>
+#     request_id <id>  status respawned|refused  generation <n>
 #     tor_pid <pid>    utc <time>
 #   GENERATION_FILE always holds the current generation and tor pid.
 # An acknowledgement says tor was respawned, not that it bootstrapped:
 # readiness is a separate, later observation. Touching RESTART_FLAG (the
 # older interface) is acknowledged as request_id "legacy". If
 # BRIDGES_REFRESH exists when tor is respawned, its bridges are used.
-RESTART_REQUEST=/tmp/tor-restart-request
-RESTART_PENDING=/tmp/tor-restart-pending
-RESTART_ACK=/tmp/tor-restart-ack
-GENERATION_FILE=/tmp/tor-generation
+# The request, acknowledgement and generation files live in CONTROL_DIR, a
+# 0700 directory of the image's own user, so only that user can request a
+# restart or forge an answer (/tmp is shared by every uid). Rejections go to
+# RESTART_REJECTED, never over a pending acknowledgement.
+CONTROL_DIR="${DATA_DIR:-/app/data}/control"
+RESTART_REQUEST=$CONTROL_DIR/tor-restart-request
+RESTART_PENDING=$CONTROL_DIR/tor-restart-pending
+RESTART_ACK=$CONTROL_DIR/tor-restart-ack
+RESTART_REJECTED=$CONTROL_DIR/tor-restart-rejected
+GENERATION_FILE=$CONTROL_DIR/tor-generation
 GENERATION=0
+if [ -L "$CONTROL_DIR" ] || { [ -e "$CONTROL_DIR" ] && [ ! -d "$CONTROL_DIR" ]; }; then
+    echo "ERROR: $CONTROL_DIR is not a real directory; refusing" >&2
+    exit 1
+fi
+if ! { mkdir -p "$CONTROL_DIR" && chmod 700 "$CONTROL_DIR"; }; then
+    echo "ERROR: cannot prepare $CONTROL_DIR" >&2
+    exit 1
+fi
 
 # write_kv <file> <request_id> <status> <generation> <tor_pid>: atomic TSV.
 write_kv() {
@@ -232,13 +247,19 @@ cleanup() {
 trap 'cleanup; exit 143' TERM INT
 
 # Clear stale restart state so the watcher doesn't fire on a fresh start.
-rm -f "$RESTART_FLAG" "$BRIDGES_REFRESH" "$RESTART_REQUEST" "$RESTART_PENDING" "$RESTART_ACK" "$GENERATION_FILE"
+rm -f "$RESTART_FLAG" "$BRIDGES_REFRESH" "$RESTART_REQUEST" "$RESTART_REQUEST.claimed" "$RESTART_PENDING" "$RESTART_ACK" "$RESTART_REJECTED" "$GENERATION_FILE"
 
 echo "Waiting for Tor to bootstrap..."
 launch_tor || exit 1
 wait_for_tor_bootstrap || [ "$?" -eq 2 ] || exit 1
 
 ONION=dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion
+# socat -T: close a stream after this many idle seconds. It was 3, which cut
+# off any Tor round trip slower than 3 s (3-7 s is normal, an onion setup
+# longer) and every reuse of Unbound's kept-alive DoT session
+# (tcp-idle-timeout 120 s). 180 s outlasts that, like tor-haproxy's
+# timeout client/server 180s; max-children still bounds the streams.
+IDLE_TIMEOUT=180
 SOCKS_OPTS="socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
 
 # Identity-bound routes (nice-dns ARCH-04). Each listener carries streams
@@ -248,11 +269,11 @@ SOCKS_OPTS="socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
 # nice-dns never publishes these ports.
 #   18531 cloudflare-onion  18532 cloudflare-exit (1.1.1.1)  18533 quad9-exit (9.9.9.9)
 ROUTE_LISTEN="reuseaddr,fork,max-children=${ROUTE_MAX_CHILDREN}"
-socat -d -T3 "TCP4-LISTEN:18531,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:$ONION:853,$SOCKS_OPTS" &
+socat -d -T"$IDLE_TIMEOUT" "TCP4-LISTEN:18531,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:$ONION:853,$SOCKS_OPTS" &
 ROUTE_ONION_PID=$!
-socat -d -T3 "TCP4-LISTEN:18532,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:1.1.1.1:853,$SOCKS_OPTS" &
+socat -d -T"$IDLE_TIMEOUT" "TCP4-LISTEN:18532,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:1.1.1.1:853,$SOCKS_OPTS" &
 ROUTE_CF_PID=$!
-socat -d -T3 "TCP4-LISTEN:18533,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:9.9.9.9:853,$SOCKS_OPTS" &
+socat -d -T"$IDLE_TIMEOUT" "TCP4-LISTEN:18533,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:9.9.9.9:853,$SOCKS_OPTS" &
 ROUTE_Q9_PID=$!
 
 # Legacy DoT listener (:853), kept for compatibility: Cloudflare only, the
@@ -261,8 +282,8 @@ ROUTE_Q9_PID=$!
 # never have its stream handed to another provider (nice-dns ARCH-04).
 # Clients that want Quad9 use the quad9-exit route.
 LEGACY_LISTEN="reuseaddr,fork,max-children=${SOCAT_MAX_CHILDREN}"
-PRIMARY="socat -d -T3 TCP4-LISTEN:853,${LEGACY_LISTEN} SOCKS4A:127.0.0.1:${ONION}:853,${SOCKS_OPTS}"
-BACKUP="socat -d -T3 TCP4-LISTEN:853,${LEGACY_LISTEN} SOCKS4A:127.0.0.1:1.1.1.1:853,${SOCKS_OPTS}"
+PRIMARY="socat -d -T${IDLE_TIMEOUT} TCP4-LISTEN:853,${LEGACY_LISTEN} SOCKS4A:127.0.0.1:${ONION}:853,${SOCKS_OPTS}"
+BACKUP="socat -d -T${IDLE_TIMEOUT} TCP4-LISTEN:853,${LEGACY_LISTEN} SOCKS4A:127.0.0.1:1.1.1.1:853,${SOCKS_OPTS}"
 
 CHECK_INTERVAL="${LEGACY_CHECK_INTERVAL:-30}"
 FAIL_THRESHOLD="${LEGACY_FAIL_THRESHOLD:-3}"
@@ -353,7 +374,7 @@ LEGACY_PID=$!
                 : > "$RESTART_FLAG"
             else
                 echo "tor-supervisor: restart request rejected (invalid id)" >&2
-                write_kv "$RESTART_ACK" invalid rejected "$(gen_field generation)" "$(gen_field tor_pid)"
+                write_kv "$RESTART_REJECTED" invalid rejected "$(gen_field generation)" "$(gen_field tor_pid)"
             fi
         fi
         if [ -f "$RESTART_FLAG" ]; then
