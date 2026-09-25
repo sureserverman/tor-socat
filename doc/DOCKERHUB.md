@@ -6,10 +6,11 @@ DNS-over-TLS resolver through Tor using **socat** with multi-tier failover.
 
 Routes your DNS queries through the Tor network to encrypted upstream DNS resolvers. socat relays raw TCP streams through Tor's SOCKS4A proxy, providing transparent TLS passthrough — the TLS session is end-to-end between your client and the upstream resolver.
 
-**Upstream resolvers (in failover order):**
+**Legacy listener, port 853 (Cloudflare only, in failover order):**
 1. Cloudflare .onion hidden DNS resolver (most private)
-2. Cloudflare 1.1.1.1
-3. Quad9 9.9.9.9
+2. Cloudflare 1.1.1.1 via a Tor exit
+
+**Identity-bound routes (one provider each, never another):** 18531 Cloudflare .onion, 18532 Cloudflare 1.1.1.1 via a Tor exit, 18533 Quad9 9.9.9.9 via a Tor exit. Your client verifies the provider's TLS name for the route it uses.
 
 Clients connect via **DNS-over-TLS** — socat passes TLS through transparently.
 
@@ -39,9 +40,10 @@ podman run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `853` | Listening port (853 for DoT, 443 for DoH, 53 for DNS) |
-| `BRIDGE1` | *(built-in)* | First obfs4 bridge string |
-| `BRIDGE2` | *(built-in)* | Second obfs4 bridge string |
+| `BRIDGE1`..`BRIDGE16` | *(none; required)* | obfs4 bridge lines; at least one, three for Conflux |
+| `BRIDGE_EVAL` | `off` | In-container bridge evaluation: `off`, `auto`, `moat` or `force` |
+| `SOCAT_MAX_CHILDREN` | `256` | Connection cap of the legacy 853 listener |
+| `ROUTE_MAX_CHILDREN` | `128` | Connection cap of each route listener |
 
 ## Custom bridges
 
@@ -61,7 +63,8 @@ Client --[DNS-over-TLS]--> socat --[SOCKS4A]--> Tor ---> upstream DoT resolver
 
 - **socat** does raw TCP relay with transparent TLS passthrough (end-to-end encryption)
 - **SOCKS4A** routes connections through Tor with remote hostname resolution (.onion support)
-- Active **health checks** every 30s with automatic failover across three upstream tiers
+- Active **health checks** every 30s on the legacy 853 listener, with failover from the onion to the Cloudflare exit (an answer is required; a dropped connection counts as a failure)
+- Tor restarts in place on request, with an acknowledgement (see the README)
 - Uses **obfs4 bridges** via lyrebird to circumvent Tor censorship
 
 ## Supported platforms

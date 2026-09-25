@@ -76,6 +76,40 @@
 > `systemctl --user enable --now tor-socat.service`
 
 
+## Routes
+
+> Port 853 is the legacy listener: the Cloudflare .onion first, Cloudflare's 1.1.1.1 via a Tor exit as backup. It is Cloudflare only. The earlier Quad9 (9.9.9.9) fallback was removed, because a client that authenticates a Cloudflare name must never have its stream handed to another provider.
+>
+> Three identity-bound routes reach exactly one provider each, with no backup or fallback to another provider:
+>
+> | Port | Route | Destination (through Tor, SOCKS4A) |
+> |---|---|---|
+> | 18531 | cloudflare-onion | Cloudflare's resolver .onion |
+> | 18532 | cloudflare-exit | 1.1.1.1:853 via a Tor exit |
+> | 18533 | quad9-exit | 9.9.9.9:853 via a Tor exit |
+>
+> tor-haproxy offers the same routes but balances each exit route over two addresses of the same provider (adding 1.0.0.1 and 149.112.112.112); here each exit route has one address. Either way a route reaches exactly one provider.
+>
+> The TLS session is end to end between your client and the provider. Your client must verify the provider's name for the route it uses. The client, not this image, chooses between routes. Each route listener accepts at most `ROUTE_MAX_CHILDREN` connections (default 128); 853 accepts `SOCAT_MAX_CHILDREN` (default 256). A stream idle for 180 seconds is closed, which outlasts a slow Tor round trip and a DNS client's kept-alive session.
+
+## Restarting Tor without restarting the container
+
+> As the image's own user (the default for `docker exec`/`podman exec`), write a request id (1–64 characters from `A-Za-z0-9._:-`; `legacy` is reserved) to `/app/data/control/tor-restart-request`. Write a temp file in the same directory and `mv` it, so the write is atomic. `/app/data/control` is 0700, so no other user can request a restart or forge an answer. Within about 5 seconds only Tor is restarted; the socat listeners keep running. The answer appears in `/app/data/control/tor-restart-ack` as tab-separated lines: `request_id`, `status` (`respawned` or `refused`), `generation`, `tor_pid` and `utc`. An invalid id is answered in `tor-restart-rejected` instead, never over a pending acknowledgement. `/app/data/control/tor-generation` always names the current generation and Tor pid. An acknowledgement means Tor was respawned, not that it has bootstrapped. Check readiness separately. Touching `/tmp/tor-restart-flag` is acknowledged as request id `legacy`. If `/tmp/bridges-current.env` exists at the restart, its bridges are used. This is the same contract as tor-haproxy.
+
+## Probing a route; the health check
+
+> `nice-dns-route-probe PORT TLS_NAME [QNAME [QTYPE]]` sends one DNS-over-TLS query through a listener of this image and prints one line, for example `port=18532 name=one.one.one.one result=ok rcode=NOERROR ms=640`. The certificate must chain to the image CA store (`NICE_DNS_PROBE_CA` overrides it) and match `TLS_NAME`. Pass the name your client authenticates on that route. `result=ok` means a DNS response with NOERROR or NXDOMAIN; a valid negative answer is working transport. `result=dns-error` means another response code, such as SERVFAIL or REFUSED. `result=no-answer` means no DNS response: a refused or dropped connection, a certificate or name that failed verification, or a timeout (`NICE_DNS_PROBE_TIMEOUT`, default 10 s). The exit status is 0 only for `ok`. The query defaults to `. SOA` (`NICE_DNS_PROBE_QNAME` overrides the name); no client name is ever sent. `nice-dns-route-probe --capabilities` prints what the probe verifies.
+>
+> The image `HEALTHCHECK` is that probe on the legacy listener with `tor.cloudflare-dns.com`, the name its clients authenticate there. A wrong-name, untrusted or expired certificate, SERVFAIL or a dropped stream is unhealthy. A deployment that uses another route sets `NICE_DNS_HEALTH_PORT` and `NICE_DNS_HEALTH_TLS_NAME`.
+>
+> The image labels declare the interface: `org.nice-dns.transport.interface` (`nice-dns-transport/2`), `org.nice-dns.transport.routes` (route=port pairs), `org.nice-dns.transport.probe` and `org.nice-dns.transport.restart` (`control-dir-ack`, the restart contract above).
+>
+> The legacy listener's failover to its backup tier decides with the same probe, always with the one name clients authenticate on 853 (`tor.cloudflare-dns.com` by default), whichever tier is active. A tier whose certificate does not carry that name is unusable for those clients too, so the check fails there and the listener moves on rather than keeping a tier its clients reject.
+>
+> Three failed probes in a row (`LEGACY_FAIL_THRESHOLD`, every `LEGACY_CHECK_INTERVAL` seconds) switch 853 from the .onion to 1.1.1.1.
+>
+> Migration from the earlier image: the health check used to accept any certificate and any answer to `google.com`, so it could report a wrong provider or an unauthenticated session as healthy. Clients of port 853 need no change. A client that ran its own `dig +tls` checks should verify the name the same way.
+
 ## Roadmap
 
 See the [open issues](https://github.com/sureserverman/tor-socat/issues) for a list of proposed features (and known issues).

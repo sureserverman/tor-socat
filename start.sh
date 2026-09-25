@@ -120,70 +120,187 @@ load_and_validate() {
 }
 
 select_bridges
-load_and_validate || exit 1
 
 # Cap concurrent socat children to bound memory/FD use; tune via env if needed.
+# SOCAT_MAX_CHILDREN bounds the legacy 853 listener, ROUTE_MAX_CHILDREN each
+# identity-bound route listener.
 SOCAT_MAX_CHILDREN="${SOCAT_MAX_CHILDREN:-256}"
-case "$SOCAT_MAX_CHILDREN" in
-    ''|*[!0-9]*) echo "ERROR: SOCAT_MAX_CHILDREN must be numeric" >&2; exit 1 ;;
-esac
+ROUTE_MAX_CHILDREN="${ROUTE_MAX_CHILDREN:-128}"
+for _v in "$SOCAT_MAX_CHILDREN" "$ROUTE_MAX_CHILDREN"; do
+    case "$_v" in
+        ''|*[!0-9]*) echo "ERROR: SOCAT_MAX_CHILDREN and ROUTE_MAX_CHILDREN must be numeric" >&2; exit 1 ;;
+    esac
+done
 
 TOR_LOG=/tmp/tor.log
+RESTART_FLAG=/tmp/tor-restart-flag
+BRIDGES_REFRESH=/tmp/bridges-current.env
+# Acknowledged restart contract (nice-dns ARCH-03 request_recovery), the same
+# as tor-haproxy's:
+#   host writes a request id to RESTART_REQUEST (atomically: tmp + mv in
+#   the same directory);
+#   the image restarts only tor and answers in RESTART_ACK, TSV lines
+#     request_id <id>  status respawned|refused  generation <n>
+#     tor_pid <pid>    utc <time>
+#   GENERATION_FILE always holds the current generation and tor pid.
+# An acknowledgement says tor was respawned, not that it bootstrapped:
+# readiness is a separate, later observation. Touching RESTART_FLAG (the
+# older interface) is acknowledged as request_id "legacy". If
+# BRIDGES_REFRESH exists when tor is respawned, its bridges are used.
+# The request, acknowledgement and generation files live in CONTROL_DIR, a
+# 0700 directory of the image's own user, so only that user can request a
+# restart or forge an answer (/tmp is shared by every uid). Rejections go to
+# RESTART_REJECTED, never over a pending acknowledgement.
+CONTROL_DIR="${DATA_DIR:-/app/data}/control"
+RESTART_REQUEST=$CONTROL_DIR/tor-restart-request
+RESTART_PENDING=$CONTROL_DIR/tor-restart-pending
+RESTART_ACK=$CONTROL_DIR/tor-restart-ack
+RESTART_REJECTED=$CONTROL_DIR/tor-restart-rejected
+GENERATION_FILE=$CONTROL_DIR/tor-generation
+GENERATION=0
+if [ -L "$CONTROL_DIR" ] || { [ -e "$CONTROL_DIR" ] && [ ! -d "$CONTROL_DIR" ]; }; then
+    echo "ERROR: $CONTROL_DIR is not a real directory; refusing" >&2
+    exit 1
+fi
+if ! { mkdir -p "$CONTROL_DIR" && chmod 700 "$CONTROL_DIR"; }; then
+    echo "ERROR: cannot prepare $CONTROL_DIR" >&2
+    exit 1
+fi
 
-cleanup() {
-    [ -n "${TOR_PID:-}" ] && kill -TERM "$TOR_PID" 2>/dev/null || true
-    [ -n "${SOCAT_PID:-}" ] && kill -TERM "$SOCAT_PID" 2>/dev/null || true
-    wait 2>/dev/null || true
+# write_kv <file> <request_id> <status> <generation> <tor_pid>: atomic TSV.
+write_kv() {
+    {
+        [ -n "$2" ] && printf 'request_id\t%s\nstatus\t%s\n' "$2" "$3"
+        printf 'generation\t%s\ntor_pid\t%s\nutc\t%s\n' "$4" "$5" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$1.tmp" && mv "$1.tmp" "$1"
 }
-trap cleanup TERM INT
+
+# gen_field <key>: a field of the current GENERATION_FILE (for the watcher,
+# which runs in a subshell and cannot see GENERATION or TOR_PID).
+gen_field() {
+    awk -F '\t' -v k="$1" '$1 == k { print $2; exit }' "$GENERATION_FILE" 2>/dev/null
+}
+
+reload_bridges() {
+    if [ -r "$BRIDGES_REFRESH" ]; then
+        cp "$BRIDGES_REFRESH" "$SELECTED_ENV" 2>/dev/null || true
+        echo "tor-supervisor: reloaded bridges from $BRIDGES_REFRESH"
+    fi
+}
 
 # Launch tor with the selected bridges (1..N). With 3 link-disjoint guards,
 # Tor's defaults (NumPrimaryGuards 3, ConfluxEnabled 1) give the 2-link Conflux
 # pair on every onion-service circuit; with fewer, Conflux is disabled (warned
-# above) but resolution still works.
-set --
-_n=1
-while [ "$_n" -le "$MAX_BRIDGE_SLOTS" ]; do
-    eval "_b=\${BRIDGE${_n}:-}"
-    [ -n "${_b:-}" ] && set -- "$@" Bridge "$_b"
-    _n=$((_n + 1))
-done
-tor "$@" >"$TOR_LOG" 2>&1 &
-TOR_PID=$!
+# above) but resolution still works. Returns 1 (tor not started) on invalid or
+# empty bridges.
+launch_tor() {
+    reload_bridges
+    if ! load_and_validate; then
+        echo "tor-supervisor: REFUSING to launch tor on invalid/empty bridges" >&2
+        return 1
+    fi
+    set --
+    _n=1
+    while [ "$_n" -le "$MAX_BRIDGE_SLOTS" ]; do
+        eval "_b=\${BRIDGE${_n}:-}"
+        [ -n "${_b:-}" ] && set -- "$@" Bridge "$_b"
+        _n=$((_n + 1))
+    done
+    : > "$TOR_LOG"
+    tor "$@" >"$TOR_LOG" 2>&1 &
+    TOR_PID=$!
+    GENERATION=$((GENERATION + 1))
+    write_kv "$GENERATION_FILE" "" "" "$GENERATION" "$TOR_PID"
+    echo "tor-supervisor: spawned tor pid=$TOR_PID generation=$GENERATION with $NBRIDGES bridge(s)"
+}
+
+# Wait for the most recent tor to reach Bootstrapped 100% (5 min cap).
+# 0 bootstrapped, 1 tor exited first, 2 timed out (carry on).
+wait_for_tor_bootstrap() {
+    i=0
+    while [ "$i" -lt 60 ]; do
+        if grep -q "Bootstrapped 100%" "$TOR_LOG" 2>/dev/null; then
+            echo "Tor bootstrapped successfully."
+            return 0
+        fi
+        if ! kill -0 "$TOR_PID" 2>/dev/null; then
+            echo "ERROR: tor exited before bootstrap." >&2
+            cat "$TOR_LOG" >&2
+            return 1
+        fi
+        sleep 5
+        i=$((i + 1))
+    done
+    echo "WARNING: Tor did not bootstrap in time, starting socat anyway."
+    return 2
+}
+
+# Every child, and each child's own socat, ends on shutdown: the legacy loop
+# traps TERM to stop its socat before exiting.
+cleanup() {
+    for _p in "${TOR_PID:-}" "${ROUTE_ONION_PID:-}" "${ROUTE_CF_PID:-}" "${ROUTE_Q9_PID:-}" \
+              "${LEGACY_PID:-}" "${WATCHER_PID:-}"; do
+        [ -n "$_p" ] && kill -TERM "$_p" 2>/dev/null || true
+    done
+    wait 2>/dev/null || true
+}
+trap 'cleanup; exit 143' TERM INT
+
+# Clear stale restart state so the watcher doesn't fire on a fresh start.
+rm -f "$RESTART_FLAG" "$BRIDGES_REFRESH" "$RESTART_REQUEST" "$RESTART_REQUEST.claimed" "$RESTART_PENDING" "$RESTART_ACK" "$RESTART_REJECTED" "$GENERATION_FILE"
 
 echo "Waiting for Tor to bootstrap..."
-for i in $(seq 1 60); do
-    if grep -q "Bootstrapped 100%" "$TOR_LOG" 2>/dev/null; then
-        echo "Tor bootstrapped successfully."
-        break
-    fi
-    if ! kill -0 "$TOR_PID" 2>/dev/null; then
-        echo "ERROR: tor exited before bootstrap." >&2
-        cat "$TOR_LOG" >&2
-        exit 1
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo "WARNING: Tor did not bootstrap in time, starting socat anyway."
-    fi
-    sleep 5
-done
+launch_tor || exit 1
+wait_for_tor_bootstrap || [ "$?" -eq 2 ] || exit 1
 
-# Socat commands for each failover tier. max-children caps fanout.
-LISTEN_OPTS="reuseaddr,fork,max-children=${SOCAT_MAX_CHILDREN}"
-PRIMARY="socat -d -T3 TCP4-LISTEN:853,${LISTEN_OPTS} SOCKS4A:127.0.0.1:dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion:853,socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
-BACKUP="socat -d -T3 TCP4-LISTEN:853,${LISTEN_OPTS} SOCKS4A:127.0.0.1:1.1.1.1:853,socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
-FALLBACK="socat -d -T3 TCP4-LISTEN:853,${LISTEN_OPTS} SOCKS4A:127.0.0.1:9.9.9.9:853,socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
+ONION=dns4torpnlfs2ifuz2s2yf3fc7rdmsbhm6rw75euj35pac6ap25zgqad.onion
+# socat -T: close a stream after this many idle seconds. It was 3, which cut
+# off any Tor round trip slower than 3 s (3-7 s is normal, an onion setup
+# longer) and every reuse of Unbound's kept-alive DoT session
+# (tcp-idle-timeout 120 s). 180 s outlasts that, like tor-haproxy's
+# timeout client/server 180s; max-children still bounds the streams.
+IDLE_TIMEOUT=180
+SOCKS_OPTS="socksport=9050,connect-timeout=2,so-rcvtimeo=20,so-sndtimeo=20"
 
-CHECK_INTERVAL=30
-FAIL_THRESHOLD=3
+# Identity-bound routes (nice-dns ARCH-04). Each listener carries streams
+# through Tor to exactly one provider and never to another; choosing a route
+# is the client's policy, and the client authenticates that provider's TLS
+# name. Bound on every address so macOS reaches them on the container IP;
+# nice-dns never publishes these ports.
+#   18531 cloudflare-onion  18532 cloudflare-exit (1.1.1.1)  18533 quad9-exit (9.9.9.9)
+ROUTE_LISTEN="reuseaddr,fork,max-children=${ROUTE_MAX_CHILDREN}"
+socat -d -T"$IDLE_TIMEOUT" "TCP4-LISTEN:18531,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:$ONION:853,$SOCKS_OPTS" &
+ROUTE_ONION_PID=$!
+socat -d -T"$IDLE_TIMEOUT" "TCP4-LISTEN:18532,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:1.1.1.1:853,$SOCKS_OPTS" &
+ROUTE_CF_PID=$!
+socat -d -T"$IDLE_TIMEOUT" "TCP4-LISTEN:18533,$ROUTE_LISTEN" "SOCKS4A:127.0.0.1:9.9.9.9:853,$SOCKS_OPTS" &
+ROUTE_Q9_PID=$!
+
+# Legacy DoT listener (:853), kept for compatibility: Cloudflare only, the
+# .onion first and Cloudflare's Tor-exit DoT as backup. The former 9.9.9.9
+# (Quad9) fallback is gone: a client authenticating a Cloudflare name must
+# never have its stream handed to another provider (nice-dns ARCH-04).
+# Clients that want Quad9 use the quad9-exit route.
+LEGACY_LISTEN="reuseaddr,fork,max-children=${SOCAT_MAX_CHILDREN}"
+PRIMARY="socat -d -T${IDLE_TIMEOUT} TCP4-LISTEN:853,${LEGACY_LISTEN} SOCKS4A:127.0.0.1:${ONION}:853,${SOCKS_OPTS}"
+BACKUP="socat -d -T${IDLE_TIMEOUT} TCP4-LISTEN:853,${LEGACY_LISTEN} SOCKS4A:127.0.0.1:1.1.1.1:853,${SOCKS_OPTS}"
+
+CHECK_INTERVAL="${LEGACY_CHECK_INTERVAL:-30}"
+FAIL_THRESHOLD="${LEGACY_FAIL_THRESHOLD:-3}"
+RETRY_DELAY="${LEGACY_RETRY_DELAY:-30}"
+
+# nap <seconds>: an interruptible sleep, so the legacy loop's TERM trap runs
+# at once instead of after the current sleep.
+nap() {
+    sleep "$1" &
+    wait "$!" 2>/dev/null || true
+}
 
 run_tier() {
     local label="$1"
     local cmd="$2"
     local next_label="$3"
     local next_cmd="$4"
-    local fallback_label="$5"
-    local fallback_cmd="$6"
 
     echo "Starting $label..."
     $cmd &
@@ -191,25 +308,32 @@ run_tier() {
     fail_count=0
 
     while true; do
-        sleep "$CHECK_INTERVAL"
+        nap "$CHECK_INTERVAL"
 
         if ! kill -0 "$SOCAT_PID" 2>/dev/null; then
             echo "$label socat process died."
             if [ -n "$next_cmd" ]; then
-                run_tier "$next_label" "$next_cmd" "$fallback_label" "$fallback_cmd" "" ""
+                run_tier "$next_label" "$next_cmd" "" ""
             fi
             return
         fi
 
-        if ! dig +short +tls +norecurse +retry=0 +time=5 -p 853 @127.0.0.1 google.com >/dev/null 2>&1; then
+        # An authenticated DNS response is required (nice-dns-route-probe:
+        # certificate chain and the consumer's TLS name verified, response
+        # code read): a wrong-name, untrusted or expired certificate, a
+        # dropped connection or SERVFAIL is a failure. dig's own exit status
+        # is 0 for a dropped connection, so it is not used.
+        if ! NICE_DNS_PROBE_TIMEOUT=5 nice-dns-route-probe 853 "${NICE_DNS_HEALTH_TLS_NAME:-tor.cloudflare-dns.com}" >/dev/null 2>&1; then
             fail_count=$((fail_count + 1))
             echo "$label health check failed ($fail_count/$FAIL_THRESHOLD)"
             if [ "$fail_count" -ge "$FAIL_THRESHOLD" ]; then
                 echo "$label exceeded failure threshold, switching..."
-                kill "$SOCAT_PID" 2>/dev/null
-                wait "$SOCAT_PID" 2>/dev/null
+                # `|| true`: under set -e the killed socat's status (143)
+                # from wait would end this loop instead of failing over.
+                kill "$SOCAT_PID" 2>/dev/null || true
+                wait "$SOCAT_PID" 2>/dev/null || true
                 if [ -n "$next_cmd" ]; then
-                    run_tier "$next_label" "$next_cmd" "$fallback_label" "$fallback_cmd" "" ""
+                    run_tier "$next_label" "$next_cmd" "" ""
                 fi
                 return
             fi
@@ -219,8 +343,91 @@ run_tier() {
     done
 }
 
+(
+    trap '[ -n "${SOCAT_PID:-}" ] && kill -TERM "$SOCAT_PID" 2>/dev/null; exit 0' TERM INT
+    while true; do
+        run_tier "PRIMARY" "$PRIMARY" "BACKUP" "$BACKUP"
+        echo "All tiers exhausted, retrying from PRIMARY in ${RETRY_DELAY}s..."
+        nap "$RETRY_DELAY"
+    done
+) &
+LEGACY_PID=$!
+
+# Restart watcher: consumes a validated request (or the legacy flag) and
+# stops tor; the main loop respawns it and acknowledges.
+(
+    while true; do
+        sleep 5
+        # A request is consumed only when no restart is in progress, so an
+        # acknowledgement is never lost to a second request.
+        if [ -f "$RESTART_REQUEST" ] && [ ! -f "$RESTART_FLAG" ]; then
+            # Claim the request by rename before reading it: a request
+            # written meanwhile lands as a new file and is not lost.
+            _req=""
+            if mv "$RESTART_REQUEST" "$RESTART_REQUEST.claimed" 2>/dev/null; then
+                _req=$(head -n 1 "$RESTART_REQUEST.claimed" 2>/dev/null || true)
+                rm -f "$RESTART_REQUEST.claimed"
+            fi
+            # "legacy" is reserved for the flag interface's acknowledgements.
+            if [ "$_req" != legacy ] && printf '%s\n' "$_req" | grep -Eqx '[A-Za-z0-9._:-]{1,64}'; then
+                printf '%s\n' "$_req" > "$RESTART_PENDING"
+                echo "tor-supervisor: restart request $_req accepted"
+                : > "$RESTART_FLAG"
+            else
+                echo "tor-supervisor: restart request rejected (invalid id)" >&2
+                write_kv "$RESTART_REJECTED" invalid rejected "$(gen_field generation)" "$(gen_field tor_pid)"
+            fi
+        fi
+        if [ -f "$RESTART_FLAG" ]; then
+            echo "tor-supervisor: restart flag observed, sending SIGTERM to tor"
+            pkill -TERM -x tor 2>/dev/null || true
+            sleep 2
+        fi
+    done
+) &
+WATCHER_PID=$!
+
+# Supervisory main loop. Poll rather than `wait -n`: busybox ash's `wait -n`
+# returns only for a child that exits 0 (see tor-haproxy start.sh). ash reaps
+# background children while `sleep` runs, so `kill -0` fails once one has
+# exited, and `wait <pid>` then returns its recorded status. A planned tor
+# exit is respawned and acknowledged; any other exit tears the container down.
 while true; do
-    run_tier "PRIMARY" "$PRIMARY" "BACKUP" "$BACKUP" "FALLBACK" "$FALLBACK"
-    echo "All tiers exhausted, retrying from PRIMARY in 30s..."
-    sleep 30
+    while kill -0 "${TOR_PID:-0}" 2>/dev/null && kill -0 "$ROUTE_ONION_PID" 2>/dev/null \
+        && kill -0 "$ROUTE_CF_PID" 2>/dev/null && kill -0 "$ROUTE_Q9_PID" 2>/dev/null \
+        && kill -0 "$LEGACY_PID" 2>/dev/null && kill -0 "$WATCHER_PID" 2>/dev/null; do
+        sleep 1
+    done
+    ec=0
+    for _p in "${TOR_PID:-}" "$ROUTE_ONION_PID" "$ROUTE_CF_PID" "$ROUTE_Q9_PID" "$LEGACY_PID" "$WATCHER_PID"; do
+        if [ -n "$_p" ] && ! kill -0 "$_p" 2>/dev/null; then
+            wait "$_p" 2>/dev/null || ec=$?
+            break
+        fi
+    done
+
+    if ! kill -0 "${TOR_PID:-0}" 2>/dev/null; then
+        if [ -f "$RESTART_FLAG" ]; then
+            echo "tor-supervisor: tor exited as part of planned restart, respawning"
+            _req=$(cat "$RESTART_PENDING" 2>/dev/null || true)
+            [ -n "$_req" ] || _req=legacy
+            rm -f "$RESTART_PENDING" "$RESTART_FLAG"
+            if launch_tor; then
+                write_kv "$RESTART_ACK" "$_req" respawned "$GENERATION" "$TOR_PID"
+                wait_for_tor_bootstrap || true
+                rm -f "$BRIDGES_REFRESH"
+                continue
+            fi
+            write_kv "$RESTART_ACK" "$_req" refused "$GENERATION" 0
+            echo "tor-supervisor: respawn refused (bad bridges); exiting" >&2
+            cleanup
+            exit 1
+        fi
+        echo "tor-supervisor: tor died unexpectedly (rc=$ec)" >&2
+    else
+        echo "tor-supervisor: a socat listener, the legacy loop or the restart watcher exited (rc=$ec); tearing down" >&2
+    fi
+    cleanup
+    [ "$ec" -ne 0 ] || ec=1
+    exit "$ec"
 done
