@@ -2,7 +2,7 @@
 # Cross-compiles the obfs4 bridge evaluator for the target arch. Pure-Go,
 # CGO-free, no module deps, so it builds for amd64 / armv7 / arm64 / riscv64
 # from any BUILDPLATFORM. GOTOOLCHAIN=local + GOPROXY=off keep it hermetic.
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS bridge-eval-build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS bridge-eval-build
 ARG TARGETARCH
 ARG TARGETVARIANT
 ENV CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=local GOPROXY=off
@@ -11,7 +11,7 @@ COPY bridge-eval/go.mod bridge-eval/*.go ./
 RUN GOARCH="$TARGETARCH" GOARM="${TARGETVARIANT#v}" \
     go build -trimpath -ldflags='-s -w' -o /out/bridge-eval .
 
-FROM alpine:3.23.4
+FROM alpine:3.24.1
 
 LABEL org.opencontainers.image.source="https://github.com/sureserverman/tor-socat"
 
