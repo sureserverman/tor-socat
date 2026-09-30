@@ -219,6 +219,25 @@ launch_tor() {
     echo "tor-supervisor: spawned tor pid=$TOR_PID generation=$GENERATION with $NBRIDGES bridge(s)"
 }
 
+# respawn_tor_acknowledged: a planned restart (the watcher stopped tor on a
+# request or the legacy flag): respawn tor and acknowledge. 0 respawned;
+# 1 refused (bad bridges; acknowledged as refused). Used by the supervisory
+# loop and by wait_for_tor_bootstrap, so the contract also holds while the
+# supervisor waits for a working stream.
+respawn_tor_acknowledged() {
+    echo "tor-supervisor: tor exited as part of planned restart, respawning"
+    _req=$(cat "$RESTART_PENDING" 2>/dev/null || true)
+    [ -n "$_req" ] || _req=legacy
+    rm -f "$RESTART_PENDING" "$RESTART_FLAG"
+    if launch_tor; then
+        write_kv "$RESTART_ACK" "$_req" respawned "$GENERATION" "$TOR_PID"
+        return 0
+    fi
+    write_kv "$RESTART_ACK" "$_req" refused "$GENERATION" 0
+    echo "tor-supervisor: respawn refused (bad bridges); exiting" >&2
+    return 1
+}
+
 # Sub-plan 5 Task 1.4 (fix B): readiness is a working stream. Tor reports
 # "Bootstrapped 100%" from its cached consensus before it can build a circuit
 # (nice-dns, mac 2026-09-29: reported 2 s after start, then every stream
@@ -285,6 +304,15 @@ wait_for_tor_bootstrap() {
         fi
         if ! kill -0 "$TOR_PID" 2>/dev/null; then
             _probes_stop
+            if [ -f "$RESTART_FLAG" ]; then
+                # A restart requested during this wait (the watcher runs from
+                # the start): respawn, acknowledge, and wait anew. 3: refused.
+                respawn_tor_acknowledged || return 3
+                rm -f "$BRIDGES_REFRESH"
+                _t0=$(_uptime)
+                _boot="" _es=0 _os=0
+                continue
+            fi
             echo "ERROR: tor exited before bootstrap." >&2
             cat "$TOR_LOG" >&2
             return 1
@@ -309,6 +337,42 @@ trap 'cleanup; exit 143' TERM INT
 
 # Clear stale restart state so the watcher doesn't fire on a fresh start.
 rm -f "$RESTART_FLAG" "$BRIDGES_REFRESH" "$RESTART_REQUEST" "$RESTART_REQUEST.claimed" "$RESTART_PENDING" "$RESTART_ACK" "$RESTART_REJECTED" "$GENERATION_FILE"
+
+# Started before the first wait, so a restart request is honored while the
+# supervisor waits for a working stream (up to 5 minutes).
+# Restart watcher: consumes a validated request (or the legacy flag) and
+# stops tor; the main loop respawns it and acknowledges.
+(
+    while true; do
+        sleep 5
+        # A request is consumed only when no restart is in progress, so an
+        # acknowledgement is never lost to a second request.
+        if [ -f "$RESTART_REQUEST" ] && [ ! -f "$RESTART_FLAG" ]; then
+            # Claim the request by rename before reading it: a request
+            # written meanwhile lands as a new file and is not lost.
+            _req=""
+            if mv "$RESTART_REQUEST" "$RESTART_REQUEST.claimed" 2>/dev/null; then
+                _req=$(head -n 1 "$RESTART_REQUEST.claimed" 2>/dev/null || true)
+                rm -f "$RESTART_REQUEST.claimed"
+            fi
+            # "legacy" is reserved for the flag interface's acknowledgements.
+            if [ "$_req" != legacy ] && printf '%s\n' "$_req" | grep -Eqx '[A-Za-z0-9._:-]{1,64}'; then
+                printf '%s\n' "$_req" > "$RESTART_PENDING"
+                echo "tor-supervisor: restart request $_req accepted"
+                : > "$RESTART_FLAG"
+            else
+                echo "tor-supervisor: restart request rejected (invalid id)" >&2
+                write_kv "$RESTART_REJECTED" invalid rejected "$(gen_field generation)" "$(gen_field tor_pid)"
+            fi
+        fi
+        if [ -f "$RESTART_FLAG" ]; then
+            echo "tor-supervisor: restart flag observed, sending SIGTERM to tor"
+            pkill -TERM -x tor 2>/dev/null || true
+            sleep 2
+        fi
+    done
+) &
+WATCHER_PID=$!
 
 echo "Waiting for Tor to bootstrap..."
 launch_tor || exit 1
@@ -414,40 +478,6 @@ run_tier() {
 ) &
 LEGACY_PID=$!
 
-# Restart watcher: consumes a validated request (or the legacy flag) and
-# stops tor; the main loop respawns it and acknowledges.
-(
-    while true; do
-        sleep 5
-        # A request is consumed only when no restart is in progress, so an
-        # acknowledgement is never lost to a second request.
-        if [ -f "$RESTART_REQUEST" ] && [ ! -f "$RESTART_FLAG" ]; then
-            # Claim the request by rename before reading it: a request
-            # written meanwhile lands as a new file and is not lost.
-            _req=""
-            if mv "$RESTART_REQUEST" "$RESTART_REQUEST.claimed" 2>/dev/null; then
-                _req=$(head -n 1 "$RESTART_REQUEST.claimed" 2>/dev/null || true)
-                rm -f "$RESTART_REQUEST.claimed"
-            fi
-            # "legacy" is reserved for the flag interface's acknowledgements.
-            if [ "$_req" != legacy ] && printf '%s\n' "$_req" | grep -Eqx '[A-Za-z0-9._:-]{1,64}'; then
-                printf '%s\n' "$_req" > "$RESTART_PENDING"
-                echo "tor-supervisor: restart request $_req accepted"
-                : > "$RESTART_FLAG"
-            else
-                echo "tor-supervisor: restart request rejected (invalid id)" >&2
-                write_kv "$RESTART_REJECTED" invalid rejected "$(gen_field generation)" "$(gen_field tor_pid)"
-            fi
-        fi
-        if [ -f "$RESTART_FLAG" ]; then
-            echo "tor-supervisor: restart flag observed, sending SIGTERM to tor"
-            pkill -TERM -x tor 2>/dev/null || true
-            sleep 2
-        fi
-    done
-) &
-WATCHER_PID=$!
-
 # Supervisory main loop. Poll rather than `wait -n`: busybox ash's `wait -n`
 # returns only for a child that exits 0 (see tor-haproxy start.sh). ash reaps
 # background children while `sleep` runs, so `kill -0` fails once one has
@@ -469,18 +499,11 @@ while true; do
 
     if ! kill -0 "${TOR_PID:-0}" 2>/dev/null; then
         if [ -f "$RESTART_FLAG" ]; then
-            echo "tor-supervisor: tor exited as part of planned restart, respawning"
-            _req=$(cat "$RESTART_PENDING" 2>/dev/null || true)
-            [ -n "$_req" ] || _req=legacy
-            rm -f "$RESTART_PENDING" "$RESTART_FLAG"
-            if launch_tor; then
-                write_kv "$RESTART_ACK" "$_req" respawned "$GENERATION" "$TOR_PID"
+            if respawn_tor_acknowledged; then
                 wait_for_tor_bootstrap || true
                 rm -f "$BRIDGES_REFRESH"
                 continue
             fi
-            write_kv "$RESTART_ACK" "$_req" refused "$GENERATION" 0
-            echo "tor-supervisor: respawn refused (bad bridges); exiting" >&2
             cleanup
             exit 1
         fi
