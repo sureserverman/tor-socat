@@ -40,7 +40,8 @@ podman run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BRIDGE1`..`BRIDGE16` | *(none; required)* | obfs4 bridge lines; at least one, three for Conflux |
+| `TOR_BRIDGES` | `on` | `on` runs Tor over the obfs4 bridges; `off` runs Tor direct, without bridges (`BRIDGE1`..`BRIDGE16` and `BRIDGE_EVAL` are then ignored). Any other value refuses to start |
+| `BRIDGE1`..`BRIDGE16` | *(none; required unless `TOR_BRIDGES=off`)* | obfs4 bridge lines; at least one, three for Conflux |
 | `BRIDGE_EVAL` | `off` | In-container bridge evaluation: `off`, `auto`, `moat` or `force` |
 | `SOCAT_MAX_CHILDREN` | `256` | Connection cap of the legacy 853 listener |
 | `ROUTE_MAX_CHILDREN` | `128` | Connection cap of each route listener |
