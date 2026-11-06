@@ -9,8 +9,8 @@
 #
 # Podman must work from the calling shell (on the laptop: run it through
 # systemd-run --user, see the task notes). LYREBIRD_VERSION, when set, is
-# passed to the build (the Dockerfile pins an edge/community release, which
-# edge drops when it moves on).
+# passed to the build (the Dockerfile pins a v3.24/community release, which
+# the repository drops when it moves on).
 
 set -u
 
