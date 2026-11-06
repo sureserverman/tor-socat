@@ -26,10 +26,16 @@ ENV APP_DIR="/$APP_USER"
 ENV DATA_DIR="$APP_DIR/data"
 ENV CONF_DIR="$APP_DIR/conf"
 
-# Edge-community release pin: bump alongside the alpine major version above.
-# lyrebird is only available from edge/community; pinning the version makes
-# rebuilds reproducible regardless of edge package churn.
-ARG LYREBIRD_VERSION=0.8.1-r6
+# lyrebird release pin, from the stable v3.24/community repository that
+# matches the alpine base above (edge's riscv64 index lagged its other
+# arches, so an edge pin could not build all four platforms). Bump when
+# v3.24 ships a new `0.8.1-rN` revision, and move the repository with the
+# base image's minor version. The version is hard-pinned (`=`) on the apk
+# add line, so a moved repository fails the build with
+# `breaks: world[lyrebird=…]` instead of shipping an unpinned package.
+# Override at build time with `--build-arg LYREBIRD_VERSION=…` to test a
+# bump without committing.
+ARG LYREBIRD_VERSION=0.8.1-r7
 
 RUN apk add --no-cache ca-certificates
 
@@ -75,7 +81,7 @@ RUN apk -U --no-cache upgrade \
     && apk add --no-cache tor socat bind-tools tini \
     && apk add --no-cache --virtual .setcap-deps libcap \
     && apk add --no-cache "lyrebird=${LYREBIRD_VERSION}" \
-        --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community/ \
+        --repository=https://dl-cdn.alpinelinux.org/alpine/v3.24/community/ \
     && setcap 'cap_net_bind_service=+ep' "$(readlink -f /usr/bin/socat)" \
     && getcap "$(readlink -f /usr/bin/socat)" | grep -q cap_net_bind_service \
     && apk del .setcap-deps

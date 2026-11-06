@@ -54,9 +54,13 @@
 > If you want to access it from your host, publish port 853 like this:\
 > `docker run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat:latest`
 > 
-> This image uses obfs4 bridges to access tor network. There is a pair of them in this image. If you want to use another ones, just do it like this:\
+> This image uses obfs4 bridges to access tor network. None are baked into the image: pass at least one at runtime (or set `TOR_BRIDGES=off` to run Tor direct), like this:\
 > `docker run -d --name=tor-socat -e BRIDGE1="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" -e BRIDGE2="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" --restart=always sureserver/tor-socat:latest`
 > with your desired bridges' strings in quotes
+>
+> To run Tor direct, without bridges, set `TOR_BRIDGES=off` (the default is `on`):\
+> `docker run -d --name=tor-socat -e TOR_BRIDGES=off --restart=always sureserver/tor-socat:latest`\
+> Then no `BRIDGEn` is needed; any that are set, and `BRIDGE_EVAL`, are ignored (logged once at start). A restart request respawns Tor direct as well. Any value other than `on` or `off` makes the container refuse to start.
 > 
 > After that just use IP-address of your container and port 853 as DNS-over-TLS upstream resolver
 
@@ -94,7 +98,7 @@
 
 ## Restarting Tor without restarting the container
 
-> As the image's own user (the default for `docker exec`/`podman exec`), write a request id (1–64 characters from `A-Za-z0-9._:-`; `legacy` is reserved) to `/app/data/control/tor-restart-request`. Write a temp file in the same directory and `mv` it, so the write is atomic. `/app/data/control` is 0700, so no other user can request a restart or forge an answer. Within about 5 seconds only Tor is restarted; the socat listeners keep running. The answer appears in `/app/data/control/tor-restart-ack` as tab-separated lines: `request_id`, `status` (`respawned` or `refused`), `generation`, `tor_pid` and `utc`. An invalid id is answered in `tor-restart-rejected` instead, never over a pending acknowledgement. `/app/data/control/tor-generation` always names the current generation and Tor pid. An acknowledgement means Tor was respawned, not that it has bootstrapped. Check readiness separately. Touching `/tmp/tor-restart-flag` is acknowledged as request id `legacy`. If `/tmp/bridges-current.env` exists at the restart, its bridges are used. This is the same contract as tor-haproxy.
+> As the image's own user (the default for `docker exec`/`podman exec`), write a request id (1–64 characters from `A-Za-z0-9._:-`; `legacy` is reserved) to `/app/data/control/tor-restart-request`. Write a temp file in the same directory and `mv` it, so the write is atomic. `/app/data/control` is 0700, so no other user can request a restart or forge an answer. Within about 5 seconds only Tor is restarted; the socat listeners keep running. The answer appears in `/app/data/control/tor-restart-ack` as tab-separated lines: `request_id`, `status` (`respawned` or `refused`), `generation`, `tor_pid` and `utc`. An invalid id is answered in `tor-restart-rejected` instead, never over a pending acknowledgement. `/app/data/control/tor-generation` always names the current generation and Tor pid. An acknowledgement means Tor was respawned, not that it has bootstrapped. Check readiness separately. Touching `/tmp/tor-restart-flag` is acknowledged as request id `legacy`. If `/tmp/bridges-current.env` exists at the restart, its bridges are used (with `TOR_BRIDGES=off` it is ignored and Tor respawns direct). This is the same contract as tor-haproxy.
 
 ## Probing a route; the health check
 
