@@ -54,7 +54,7 @@
 > If you want to access it from your host, publish port 853 like this:\
 > `docker run -d --name=tor-socat -p 853:853 --restart=always sureserver/tor-socat:latest`
 > 
-> This image uses obfs4 bridges to access tor network. There is a pair of them in this image. If you want to use another ones, just do it like this:\
+> This image uses obfs4 bridges to access tor network. None are baked into the image: pass at least one at runtime (or set `TOR_BRIDGES=off` to run Tor direct), like this:\
 > `docker run -d --name=tor-socat -e BRIDGE1="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" -e BRIDGE2="obfs4 217.182.78.247:52234 FF98116BB1530B18EDFBD0721FEF9874ADB1346A cert=tPXL+y4Wk+oFiqWdGtSAJ2BhcJBBcSD3gNn6dbgvmojNXy7DSeygNuHx4PYXvM9B+fTCPg iat-mode=0" --restart=always sureserver/tor-socat:latest`
 > with your desired bridges' strings in quotes
 >
